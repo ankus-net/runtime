@@ -28,7 +28,7 @@ copies the documentation file from the empty output directory. The supplied `ANK
 the patched runtime built from the same upstream release. A .NET SDK update
 alone must not change which runtime/compiler combination these checks exercise.
 
-The .NET 11.0.0 RC2 port passes the retained-service and descendant checks,
+The .NET 11.0.0 RC3 port passes the retained-service and descendant checks,
 workstation and server active-GC checks (fixed and dynamic heap counts), and
 diagnostics transport, ownership, listener, tracing and managed-fork checks on
 Linux x64, as the .NET 10 servicing releases did. .NET 11 removed the debug
