@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>10.0.14</RuntimeFrameworkVersion>
   </PropertyGroup>
 
   <Target Name="_SelectForkProbeCompiler" BeforeTargets="ProcessFrameworkReferences"
@@ -10,7 +10,7 @@
     <ItemGroup>
       <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler"
                            Condition="'%(KnownILCompilerPack.TargetFramework)' == '$(TargetFramework)'">
-        <ILCompilerPackVersion>10.0.12</ILCompilerPackVersion>
+        <ILCompilerPackVersion>10.0.14</ILCompilerPackVersion>
       </KnownILCompilerPack>
     </ItemGroup>
   </Target>

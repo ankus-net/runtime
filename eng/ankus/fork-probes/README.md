@@ -21,7 +21,7 @@ Build the runtime's Release nativeaot component and CoreLib first. Set
 directory produced by those builds. The probes pin the matching .NET SDK and
 compiler; use that SDK's `dotnet` command from each probe directory.
 
-`ForkProbe.targets` selects the .NET 10.0.12 framework and ILCompiler packs
+`ForkProbe.targets` selects the .NET 10.0.14 framework and ILCompiler packs
 independently of the installed SDK patch. The supplied `ANKUS_AOT_SDK` must be
 the patched runtime built from the same upstream release. A .NET SDK update
 alone must not change which runtime/compiler combination these checks exercise.
