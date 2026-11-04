@@ -21,7 +21,7 @@ Build the runtime's Release nativeaot component and CoreLib first. Set
 directory produced by those builds. The probes pin the matching .NET SDK and
 compiler; use that SDK's `dotnet` command from each probe directory.
 
-`ForkProbe.targets` selects the .NET 11.0.0 RC2 (`11.0.0-rc.2.26504.105`) framework
+`ForkProbe.targets` selects the .NET 11.0.0 RC3 (`11.0.0-rc.3.26522.148`) framework
 and ILCompiler packs independently of the installed SDK patch. It also publishes
 through the full build: SDK 11's optimized Native AOT publish skips it yet still
 copies the documentation file from the empty output directory. The supplied `ANKUS_AOT_SDK` must be
