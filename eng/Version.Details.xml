@@ -67,10 +67,6 @@
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.DotNet.Helix.JobMonitor" Version="11.0.0-beta.26465.108">
-      <Uri>https://github.com/dotnet/dotnet</Uri>
-      <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
-    </Dependency>
     <Dependency Name="Microsoft.DotNet.GenAPI" Version="11.0.0-beta.26465.108">
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
@@ -100,6 +96,10 @@
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
     <Dependency Name="Microsoft.DotNet.Build.Tasks.Installers" Version="11.0.0-beta.26465.108">
+      <Uri>https://github.com/dotnet/dotnet</Uri>
+      <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
+    </Dependency>
+    <Dependency Name="Microsoft.DotNet.Build.Tasks.FileCatalog" Version="11.0.0-beta.26465.108">
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
@@ -323,10 +323,6 @@
       <Uri>https://dev.azure.com/dnceng/internal/_git/dotnet-optimization</Uri>
       <Sha>eb2e9a7ebf54cdb4bc0ade04a042a23ee1568a6f</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.DotNet.HotReload.Utils.Generator.BuildTool" Version="11.0.0-alpha.0.26180.1">
-      <Uri>https://github.com/dotnet/hotreload-utils</Uri>
-      <Sha>28af8e7016d4b1ad30ed932f15bd56c033402457</Sha>
-    </Dependency>
     <Dependency Name="System.Runtime.Numerics.TestData" Version="11.0.0-beta.26462.1">
       <Uri>https://github.com/dotnet/runtime-assets</Uri>
       <Sha>8e883241024dfca53198d697233efbb087d4044a</Sha>
@@ -344,10 +340,6 @@
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
     <Dependency Name="Microsoft.CodeAnalysis.Analyzers" Version="5.12.0-1.26465.108">
-      <Uri>https://github.com/dotnet/dotnet</Uri>
-      <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
-    </Dependency>
-    <Dependency Name="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.12.0-1.26465.108">
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
@@ -425,7 +417,15 @@
       <Uri>https://github.com/dotnet/runtime-assets</Uri>
       <Sha>8e883241024dfca53198d697233efbb087d4044a</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.DotNet.Build.Tasks.FileCatalog" Version="11.0.0-beta.26465.108">
+    <Dependency Name="Microsoft.DotNet.HotReload.Utils.Generator.BuildTool" Version="11.0.0-alpha.0.26180.1">
+      <Uri>https://github.com/dotnet/hotreload-utils</Uri>
+      <Sha>28af8e7016d4b1ad30ed932f15bd56c033402457</Sha>
+    </Dependency>
+    <Dependency Name="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.12.0-1.26465.108">
+      <Uri>https://github.com/dotnet/dotnet</Uri>
+      <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
+    </Dependency>
+    <Dependency Name="Microsoft.DotNet.Helix.JobMonitor" Version="11.0.0-beta.26465.108">
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>e5abd3f0528a8467c64a855a6ff569566d0daf27</Sha>
     </Dependency>
