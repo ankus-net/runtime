@@ -260,7 +260,12 @@ void ThreadStore::DetachCurrentThread()
     // Run pre-mortem callbacks while we still can run managed code and not holding locks.
     // NOTE: background GC threads are attached/suspendable threads, but should not run ordinary
     // managed code. Make sure that does not happen here.
-    if (g_threadExitCallback != NULL && !pDetachingThread->IsGCSpecial())
+    // A thread that never allocated thread statics has no managed Thread object, so the callback has nothing to
+    // do and would only allocate that storage. A finalizer retired by a fork checkpoint exits after the collector
+    // is retired, where that allocation could wait for a collection that never runs.
+    bool hasThreadStatics = *pDetachingThread->GetThreadStaticStorage() != NULL ||
+        pDetachingThread->GetInlinedThreadStaticList() != NULL;
+    if (g_threadExitCallback != NULL && !pDetachingThread->IsGCSpecial() && hasThreadStatics)
     {
         g_threadExitCallback();
     }
