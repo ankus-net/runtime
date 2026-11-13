@@ -5639,7 +5639,7 @@ public:
 #if defined(FEATURE_NATIVEAOT) && ((defined(TARGET_LINUX) && (defined(TARGET_AMD64) || defined(TARGET_ARM64))) || \
      (defined(TARGET_OSX) && (defined(TARGET_AMD64) || defined(TARGET_ARM64)))) && !defined(BUILD_AS_STANDALONE)
     static int32_t fork_heap_count(bool maximum);
-    static bool prepare_for_fork(uint32_t timeoutMilliseconds);
+    static bool prepare_for_fork(uint32_t firstReportMilliseconds);
     static bool resume_after_fork();
     PER_HEAP_METHOD bool retire_bgc_for_fork();
 #endif

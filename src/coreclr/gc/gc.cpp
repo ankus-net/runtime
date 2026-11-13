@@ -71,6 +71,9 @@ static IGCHeap* s_forkOwnedGCHeap;
 
 static_assert(__atomic_always_lock_free(sizeof(uint64_t), nullptr), "Fork observations require a lock-free 64-bit counter.");
 
+extern "C" uint64_t RhForkWaitStarted();
+extern "C" void RhForkReportWait(const char* waitingFor, uint64_t startedMs, uint64_t* nextReportMs);
+
 #ifdef SERVER_GC
 static void** s_forkServerThreads;
 static std::atomic<int> s_forkServerThreadsRunning(0);
@@ -87,9 +90,9 @@ extern "C" bool RhIsOwnedServerGCForFork(IGCHeap* heap)
     return heap != nullptr && heap == s_forkOwnedGCHeap;
 }
 
-extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds)
+extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds)
 {
-    return RhIsOwnedServerGCForFork(heap) && gc_heap::prepare_for_fork(timeoutMilliseconds);
+    return RhIsOwnedServerGCForFork(heap) && gc_heap::prepare_for_fork(firstReportMilliseconds);
 }
 
 extern "C" bool RhIsServerGCReadyForFork() { return s_forkGCReady.load(); }
@@ -102,7 +105,7 @@ extern "C" int32_t RhGetServerForkGCHeapCount(bool maximum) { return gc_heap::fo
 #else
 #ifdef FEATURE_SVR_GC
 extern "C" bool RhIsOwnedServerGCForFork(IGCHeap* heap);
-extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds);
+extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds);
 extern "C" bool RhIsServerGCReadyForFork();
 extern "C" bool RhResumeServerGCForFork();
 extern "C" uint64_t RhGetServerForkGCActiveObservationCount();
@@ -143,15 +146,15 @@ extern "C" bool RhIsOwnedGCForFork(IGCHeap* heap)
     return heap != nullptr && heap == s_forkOwnedGCHeap;
 }
 
-extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds)
+extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds)
 {
 #ifdef FEATURE_SVR_GC
     if (RhIsOwnedServerGCForFork(heap))
     {
-        return RhPrepareServerGCForFork(heap, timeoutMilliseconds);
+        return RhPrepareServerGCForFork(heap, firstReportMilliseconds);
     }
 #endif
-    return heap != nullptr && heap == s_forkOwnedGCHeap && gc_heap::prepare_for_fork(timeoutMilliseconds);
+    return heap != nullptr && heap == s_forkOwnedGCHeap && gc_heap::prepare_for_fork(firstReportMilliseconds);
 }
 
 extern "C" bool RhIsGCReadyForFork()
@@ -40502,7 +40505,7 @@ int32_t gc_heap::fork_heap_count(bool maximum)
 #endif
 }
 
-bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
+bool gc_heap::prepare_for_fork(uint32_t firstReportMilliseconds)
 {
     bool expected = false;
     if (!s_forkGCAdmissionClosed.compare_exchange_strong(expected, true))
@@ -40510,7 +40513,8 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
         return false;
     }
 
-    uint32_t elapsed = 0;
+    uint64_t startedMs = RhForkWaitStarted();
+    uint64_t nextReportMs = firstReportMilliseconds;
     bool observedActive = false;
     while (true)
     {
@@ -40532,11 +40536,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
             break;
         }
 
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the collector to finish its background collection", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -40547,11 +40547,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
     ee_suspend_event.Set();
     while (s_forkServerCoordinatorRunning.load())
     {
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the server collector's coordinator to stop", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -40616,11 +40612,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
             break;
         }
 
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the collector threads to retire", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -40678,14 +40670,11 @@ bool gc_heap::resume_after_fork()
         }
     }
 
-    uint32_t elapsed = 0;
+    uint64_t startedMs = RhForkWaitStarted();
+    uint64_t nextReportMs = 10000;
     while (s_forkServerThreadsStarted.load() != n_max_heaps - 1)
     {
-        if (elapsed++ == 10000)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the server collector threads to start", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
