@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdio.h>
 
 /* Passive GC topology is exported only by the owned probe binary. */
 typedef int32_t (*heap_count_fn)(int32_t maximum);
@@ -8,7 +9,49 @@ static heap_count_fn collector_heap_count;
 static int collector_maximum;
 static bool collector_server;
 
-/* Read native thread names without entering the managed runtime. */
+#ifdef __linux__
+/* Linux sets PF_EXITING when a thread enters do_exit, before pthread_join can return for it, and lists the
+ * thread in /proc/self/task until do_exit releases it. A thread the runtime has joined can still be listed for
+ * a moment, but it has left user code and holds no lock. Returns 1 for such a thread, 0 for a live one and -1 when
+ * its state can't be read. */
+static int
+thread_has_exited(int thread)
+{
+    int stat = openat(thread, "stat", O_RDONLY | O_CLOEXEC);
+    if (stat < 0)
+    {
+        return errno == ENOENT || errno == ESRCH ? 1 : -1;
+    }
+
+    char buffer[512] = {0};
+    ssize_t length;
+    do
+    {
+        length = read(stat, buffer, sizeof(buffer) - 1);
+    } while (length < 0 && errno == EINTR);
+
+    int read_error = errno;
+    close(stat);
+    if (length < 0)
+    {
+        return read_error == ESRCH ? 1 : -1;
+    }
+
+    /* The name can hold spaces and parentheses, so the fields start after its last parenthesis. */
+    char *fields = strrchr(buffer, ')');
+    char state;
+    unsigned long flags;
+    if (fields == NULL || sscanf(fields + 1, " %c %*d %*d %*d %*d %*d %lu", &state, &flags) != 2)
+    {
+        return -1;
+    }
+
+    const unsigned long exiting = 0x4;
+    return (flags & exiting) != 0 || state == 'X' || state == 'Z' ? 1 : 0;
+}
+#endif
+
+/* Read native thread names without entering the managed runtime. Threads that have exited are not counted. */
 static int
 count_named_threads(const char *expected_name)
 {
@@ -54,9 +97,9 @@ count_named_threads(const char *expected_name)
 
         int name = openat(thread, "comm", O_RDONLY | O_CLOEXEC);
         int open_error = errno;
-        close(thread);
         if (name < 0)
         {
+            close(thread);
             if (open_error == ENOENT || open_error == ESRCH)
             {
                 continue;
@@ -77,11 +120,26 @@ count_named_threads(const char *expected_name)
         close(name);
         if (length < 0 && read_error != ESRCH)
         {
+            close(thread);
             count = -1;
             break;
         }
 
-        if (length == (ssize_t) strlen(expected_name) && memcmp(buffer, expected_name, (size_t) length) == 0)
+        if (length != (ssize_t) strlen(expected_name) || memcmp(buffer, expected_name, (size_t) length) != 0)
+        {
+            close(thread);
+            continue;
+        }
+
+        int exited = thread_has_exited(thread);
+        close(thread);
+        if (exited < 0)
+        {
+            count = -1;
+            break;
+        }
+
+        if (exited == 0)
         {
             count++;
         }
