@@ -3046,7 +3046,7 @@ int32_t gc_heap::fork_heap_count(bool maximum)
 #endif
 }
 
-bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
+bool gc_heap::prepare_for_fork(uint32_t firstReportMilliseconds)
 {
     bool expected = false;
     if (!s_forkGCAdmissionClosed.compare_exchange_strong(expected, true))
@@ -3054,7 +3054,8 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
         return false;
     }
 
-    uint32_t elapsed = 0;
+    uint64_t startedMs = RhForkWaitStarted();
+    uint64_t nextReportMs = firstReportMilliseconds;
     bool observedActive = false;
     while (true)
     {
@@ -3076,11 +3077,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
             break;
         }
 
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the collector to finish its background collection", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -3091,11 +3088,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
     ee_suspend_event.Set();
     while (s_forkServerCoordinatorRunning.load())
     {
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the server collector's coordinator to stop", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -3160,11 +3153,7 @@ bool gc_heap::prepare_for_fork(uint32_t timeoutMilliseconds)
             break;
         }
 
-        if (elapsed++ == timeoutMilliseconds)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the collector threads to retire", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 
@@ -3222,14 +3211,11 @@ bool gc_heap::resume_after_fork()
         }
     }
 
-    uint32_t elapsed = 0;
+    uint64_t startedMs = RhForkWaitStarted();
+    uint64_t nextReportMs = 10000;
     while (s_forkServerThreadsStarted.load() != n_max_heaps - 1)
     {
-        if (elapsed++ == 10000)
-        {
-            return false;
-        }
-
+        RhForkReportWait("the server collector threads to start", startedMs, &nextReportMs);
         GCToOSInterface::Sleep(1);
     }
 

@@ -28,7 +28,7 @@ extern "C" void RhResumeForkWork();
 
 // Built-in collector entry points, dispatched to the collector that owns the heap; the generic collector ABI is unchanged.
 extern "C" bool RhIsOwnedGCForFork(IGCHeap* heap);
-extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds);
+extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds);
 extern "C" bool RhIsGCReadyForFork();
 extern "C" bool RhResumeGCForFork();
 

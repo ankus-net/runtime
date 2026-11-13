@@ -70,6 +70,8 @@ extern std::atomic<bool> s_forkGCExitRequested;
 extern std::atomic<bool> s_forkGCReady;
 extern std::atomic<uint64_t> s_forkGCActiveObservations;
 extern IGCHeap* s_forkOwnedGCHeap;
+extern "C" uint64_t RhForkWaitStarted();
+extern "C" void RhForkReportWait(const char* waitingFor, uint64_t startedMs, uint64_t* nextReportMs);
 
 #ifdef SERVER_GC
 extern void** s_forkServerThreads;

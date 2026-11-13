@@ -46,9 +46,9 @@ extern "C" bool RhIsOwnedServerGCForFork(IGCHeap* heap)
     return heap != nullptr && heap == s_forkOwnedGCHeap;
 }
 
-extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds)
+extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds)
 {
-    return RhIsOwnedServerGCForFork(heap) && gc_heap::prepare_for_fork(timeoutMilliseconds);
+    return RhIsOwnedServerGCForFork(heap) && gc_heap::prepare_for_fork(firstReportMilliseconds);
 }
 
 extern "C" bool RhIsServerGCReadyForFork() { return s_forkGCReady.load(); }
@@ -68,9 +68,9 @@ extern "C" bool RhIsOwnedWorkstationGCForFork(IGCHeap* heap)
     return heap != nullptr && heap == s_forkOwnedGCHeap;
 }
 
-extern "C" bool RhPrepareWorkstationGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds)
+extern "C" bool RhPrepareWorkstationGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds)
 {
-    return RhIsOwnedWorkstationGCForFork(heap) && gc_heap::prepare_for_fork(timeoutMilliseconds);
+    return RhIsOwnedWorkstationGCForFork(heap) && gc_heap::prepare_for_fork(firstReportMilliseconds);
 }
 
 extern "C" bool RhIsWorkstationGCReadyForFork() { return s_forkOwnedGCHeap != nullptr && s_forkGCReady.load(); }

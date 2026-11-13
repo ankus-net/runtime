@@ -142,3 +142,8 @@ Run both the direct runtime-object check and the real Native AOT library check.
 The [host signal checks](host-signals/README.md) send PostgreSQL's signals to a
 process whose host thread blocks them. Runtime threads must leave each one
 pending for the host thread, while collections can still suspend managed code.
+
+The [delayed thread checks](delayed-threads/README.md) hold each new runtime
+thread for 11 seconds before it first runs, as a busy machine can. Enabling fork
+support and leaving host callbacks must wait for those threads, report what they
+are waiting for, and succeed.

@@ -19,6 +19,9 @@
 
 #include <atomic>
 #include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
 #include <unistd.h>
 #ifdef TARGET_OSX
 #include <mach/mach.h>
@@ -30,12 +33,12 @@ extern "C" int __is_threaded;
 // recognizes only the heap it initialized, so these forward to whichever one owns the process heap.
 extern "C" uint64_t RhGetWorkstationForkGCActiveObservationCount();
 extern "C" bool RhIsOwnedWorkstationGCForFork(IGCHeap* heap);
-extern "C" bool RhPrepareWorkstationGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds);
+extern "C" bool RhPrepareWorkstationGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds);
 extern "C" bool RhIsWorkstationGCReadyForFork();
 extern "C" bool RhResumeWorkstationGCForFork();
 #ifdef FEATURE_SVR_GC
 extern "C" bool RhIsOwnedServerGCForFork(IGCHeap* heap);
-extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds);
+extern "C" bool RhPrepareServerGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds);
 extern "C" bool RhIsServerGCReadyForFork();
 extern "C" bool RhResumeServerGCForFork();
 extern "C" uint64_t RhGetServerForkGCActiveObservationCount();
@@ -62,15 +65,15 @@ extern "C" bool RhIsOwnedGCForFork(IGCHeap* heap)
     return RhIsOwnedWorkstationGCForFork(heap);
 }
 
-extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t timeoutMilliseconds)
+extern "C" bool RhPrepareGCForFork(IGCHeap* heap, uint32_t firstReportMilliseconds)
 {
 #ifdef FEATURE_SVR_GC
     if (RhIsOwnedServerGCForFork(heap))
     {
-        return RhPrepareServerGCForFork(heap, timeoutMilliseconds);
+        return RhPrepareServerGCForFork(heap, firstReportMilliseconds);
     }
 #endif
-    return RhPrepareWorkstationGCForFork(heap, timeoutMilliseconds);
+    return RhPrepareWorkstationGCForFork(heap, firstReportMilliseconds);
 }
 
 extern "C" bool RhIsGCReadyForFork()
@@ -177,6 +180,56 @@ namespace
         _exit(198);
     }
 
+    const uint64_t FirstWaitReportMilliseconds = 10000;
+    const uint64_t WaitReportIntervalMilliseconds = 60000;
+
+    uint64_t MonotonicMilliseconds()
+    {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        return (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
+    }
+
+    // Each wait here is for another runtime thread that needs only CPU time to finish, and a runnable thread can
+    // go unscheduled for seconds on a busy machine. Failing after a fixed time would turn that delay into a failed
+    // process, so a long wait instead reports what it is waiting for, after ten seconds and then every minute.
+    void ReportWait(const char* waitingFor, Thread* caller, uint64_t startedMs, uint64_t* nextReportMs)
+    {
+        uint64_t elapsed = MonotonicMilliseconds() - startedMs;
+        if (elapsed < *nextReportMs)
+        {
+            return;
+        }
+
+        *nextReportMs = elapsed + WaitReportIntervalMilliseconds;
+        char buffer[2048];
+        int written = snprintf(buffer, sizeof(buffer),
+            "NativeAOT fork support: still waiting for %s after %llu ms; finalizer %s; unfinished thread exits %u;"
+            " attached threads:", waitingFor, (unsigned long long)elapsed,
+            s_finalizer.load() == nullptr ? "not registered" : "registered", s_threadShutdowns.load());
+        size_t used = written > 0 ? (size_t)written : 0;
+        ThreadStore* store = GetThreadStore();
+        store->LockThreadStore();
+        Thread* finalizer = s_finalizer.load();
+        FOREACH_THREAD(thread)
+        {
+            if (used + 64 >= sizeof(buffer))
+            {
+                break;
+            }
+
+            const char* role = thread == caller ? "caller" : thread == finalizer ? "finalizer" :
+                thread->IsGCSpecial() ? "collector" : "other";
+            written = snprintf(buffer + used, sizeof(buffer) - used, " %llu (%s%s)",
+                (unsigned long long)thread->GetOSThreadId(), role, thread->IsDetached() ? ", detached" : "");
+            used += written > 0 ? (size_t)written : 0;
+        }
+        END_FOREACH_THREAD
+        store->UnlockThreadStore();
+        snprintf(buffer + used, sizeof(buffer) - used, ".\n");
+        PalPrintFatalError(buffer);
+    }
+
     bool HasSupportedConfiguration()
     {
         return !s_backgroundWorkerStarted.load() && RhIsOwnedGCForFork(GCHeapUtilities::GetGCHeap());
@@ -265,13 +318,14 @@ namespace
             ForkFailure("NativeAOT fork support: diagnostics preparation failed.\n");
         }
 
-        if (!RhPrepareGCForFork(GCHeapUtilities::GetGCHeap(), 30000))
+        if (!RhPrepareGCForFork(GCHeapUtilities::GetGCHeap(), (uint32_t)FirstWaitReportMilliseconds))
         {
             ForkFailure("NativeAOT fork support: GC did not retire its collectors.\n");
         }
 
         ThreadStore* store = GetThreadStore();
-        uint32_t attempts = 0;
+        uint64_t startedMs = MonotonicMilliseconds();
+        uint64_t nextReportMs = FirstWaitReportMilliseconds;
         while (true)
         {
             store->LockThreadStore();
@@ -290,11 +344,7 @@ namespace
                 break;
             }
 
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: managed service threads did not detach.\n");
-            }
-
+            ReportWait("managed service threads to detach", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
@@ -305,14 +355,11 @@ namespace
         }
 
         RhEnableFinalization();
-        attempts = 0;
+        startedMs = MonotonicMilliseconds();
+        nextReportMs = FirstWaitReportMilliseconds;
         while (s_acknowledged.load() != request)
         {
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: finalizer did not reach its idle checkpoint.\n");
-            }
-
+            ReportWait("the finalizer to reach its idle checkpoint", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
@@ -492,7 +539,7 @@ namespace
             ForkFailure("NativeAOT fork support: host diagnostics preparation failed.\n");
         }
 
-        if (!RhPrepareGCForFork(GCHeapUtilities::GetGCHeap(), 30000))
+        if (!RhPrepareGCForFork(GCHeapUtilities::GetGCHeap(), (uint32_t)FirstWaitReportMilliseconds))
         {
             ForkFailure("NativeAOT fork support: host GC did not retire its collectors.\n");
         }
@@ -508,7 +555,8 @@ namespace
 
         s_finalizerExit.store(true);
         ThreadStore* store = GetThreadStore();
-        uint32_t attempts = 0;
+        uint64_t startedMs = MonotonicMilliseconds();
+        uint64_t nextReportMs = FirstWaitReportMilliseconds;
         while (true)
         {
             store->LockThreadStore();
@@ -525,27 +573,21 @@ namespace
                 break;
             }
 
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: host service threads did not detach.\n");
-            }
-
+            ReportWait("host service threads to detach", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
         RhEnableFinalization();
-        attempts = 0;
+        startedMs = MonotonicMilliseconds();
+        nextReportMs = FirstWaitReportMilliseconds;
         while (s_acknowledged.load() != request)
         {
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: host finalizer did not acknowledge retirement.\n");
-            }
-
+            ReportWait("the host finalizer to acknowledge retirement", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
-        attempts = 0;
+        startedMs = MonotonicMilliseconds();
+        nextReportMs = FirstWaitReportMilliseconds;
         while (true)
         {
             store->LockThreadStore();
@@ -557,11 +599,7 @@ namespace
                 break;
             }
 
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: host finalizer did not detach.\n");
-            }
-
+            ReportWait("the host finalizer to detach", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
@@ -579,19 +617,27 @@ namespace
         // Darwin wakes pthread_join before __bsdthread_terminate has removed the
         // kernel thread from task_threads. Wait for that asynchronous teardown
         // before resetting libpthread's single-threaded state.
-        attempts = 0;
+        startedMs = MonotonicMilliseconds();
+        nextReportMs = FirstWaitReportMilliseconds;
         while (!ResetHostThreadState())
         {
-            if (++attempts == 10000)
-            {
-                ForkFailure("NativeAOT fork support: host native threads did not finish teardown.\n");
-            }
-
+            ReportWait("host native threads to finish teardown", caller, startedMs, &nextReportMs);
             PalSleep(1);
         }
 
         s_state.store(ForkState::Dormant);
     }
+}
+
+// The collector's fork waits report through the same path as the runtime's own.
+extern "C" uint64_t RhForkWaitStarted()
+{
+    return MonotonicMilliseconds();
+}
+
+extern "C" void RhForkReportWait(const char* waitingFor, uint64_t startedMs, uint64_t* nextReportMs)
+{
+    ReportWait(waitingFor, ThreadStore::RawGetCurrentThread(), startedMs, nextReportMs);
 }
 
 extern "C" int32_t RhTryEnterForkWork()
@@ -733,14 +779,11 @@ extern "C" __attribute__((visibility("default"))) int32_t RhEnableForkSupport()
         return EnableFailure(-3);
     }
 
-    uint32_t attempts = 0;
+    uint64_t startedMs = MonotonicMilliseconds();
+    uint64_t nextReportMs = FirstWaitReportMilliseconds;
     while (s_finalizer.load() == nullptr)
     {
-        if (++attempts == 10000)
-        {
-            return EnableFailure(-4);
-        }
-
+        ReportWait("the finalizer to register", caller, startedMs, &nextReportMs);
         PalSleep(1);
     }
 
