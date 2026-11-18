@@ -3,7 +3,7 @@
 
 using System.Collections.Generic;
 using System.Runtime;
-using System.Text;
+using System.Text.Unicode;
 
 namespace System
 {
@@ -16,12 +16,20 @@ namespace System
             var dataStore = new Dictionary<string, object?>((int)count);
             for (int i = 0; i < count; i++)
             {
-                dataStore.Add(
-                    Encoding.UTF8.GetString(keys[i], string.strlen(keys[i])),
-                    Encoding.UTF8.GetString(values[i], string.strlen(values[i])));
+                dataStore.Add(DecodeKnob(keys[i]), DecodeKnob(values[i]));
             }
 
             return dataStore;
+        }
+
+        // A lock can first be contended inside UTF8Encoding's class constructor, and initializing the lock's statics
+        // reads AppContext, so decode without Encoding.UTF8. Invalid sequences become U+FFFD as Encoding.UTF8 does.
+        private static unsafe string DecodeKnob(byte* knob)
+        {
+            ReadOnlySpan<byte> bytes = new ReadOnlySpan<byte>(knob, string.strlen(knob));
+            char[] chars = new char[bytes.Length];
+            Utf8.ToUtf16(bytes, chars, out _, out int written);
+            return new string(chars, 0, written);
         }
 
         [RuntimeExport("OnFirstChanceException")]
