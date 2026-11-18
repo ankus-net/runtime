@@ -143,6 +143,10 @@ The [host signal checks](host-signals/README.md) send PostgreSQL's signals to a
 process whose host thread blocks them. Runtime threads must leave each one
 pending for the host thread, while collections can still suspend managed code.
 
+The [lock statics checks](lock-statics/README.md) make the first contended lock
+in a fresh process occur while UTF8Encoding's class constructor runs. Reading the
+lock spin settings must not need that or any other class constructor.
+
 The [delayed thread checks](delayed-threads/README.md) hold each new runtime
 thread for 11 seconds before it first runs, as a busy machine can. Enabling fork
 support and leaving host callbacks must wait for those threads, report what they
