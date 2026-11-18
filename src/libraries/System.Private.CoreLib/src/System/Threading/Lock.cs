@@ -675,7 +675,7 @@ namespace System.Threading
             }
 
             return
-                AppContextConfigHelper.GetInt16Config(
+                GetInt16Config(
                     "System.Threading.Lock.SpinCount",
                     "DOTNET_Lock_SpinCount",
                     DefaultMaxSpinCount,
@@ -689,7 +689,7 @@ namespace System.Threading
         {
             // The config var can be set to -1 to disable adaptive spin
             short adaptiveSpinPeriod =
-                AppContextConfigHelper.GetInt16Config(
+                GetInt16Config(
                     "System.Threading.Lock.AdaptiveSpinPeriod",
                     "DOTNET_Lock_AdaptiveSpinPeriod",
                     DefaultAdaptiveSpinPeriod,
@@ -701,6 +701,134 @@ namespace System.Threading
 
             return (short)-adaptiveSpinPeriod;
         }
+
+#if NATIVEAOT
+        // Native AOT initializes these settings when a lock is first contended, which can happen inside any class
+        // constructor. AppContextConfigHelper reads the environment through Encoding.UTF8 on Unix and parses through
+        // NumberFormatInfo.InvariantInfo, which constructs CultureInfo. When this thread is already running one of those
+        // class constructors, the nested access finds its statics unset and throws, and the exception fails the process
+        // from the class constructor that contended. Read and parse the same settings without class construction;
+        // AppContext decodes its data without Encoding.UTF8 for the same reason.
+        private static short GetInt16Config(string configName, string envVariable, short defaultValue, bool allowNegative)
+        {
+#if TARGET_UNIX
+            string? str = Environment.GetEnvironmentVariableCore_NoEncoding(envVariable);
+#else
+            string? str = Environment.GetEnvironmentVariable(envVariable);
+#endif
+            if (str != null && TryParseInt16Config(str, out short result) && (allowNegative || result >= 0))
+            {
+                return result;
+            }
+
+            object? data = AppContext.GetData(configName);
+            if (data == null)
+            {
+                return defaultValue;
+            }
+
+            if (data is string value)
+            {
+                return TryParseInt16Config(value, out result) && (allowNegative || result >= 0) ? result : defaultValue;
+            }
+
+            // Only AppContext.SetData supplies other types, so convert them with the shared rules.
+            return AppContextConfigHelper.GetInt16Config(configName, defaultValue, allowNegative);
+        }
+
+        // Parses a setting as AppContextConfigHelper.GetInt16Config does. A value that starts with "0x" is hexadecimal and
+        // any other value that starts with '0' is octal, read as Convert.ToInt16 reads them, so values up to 0xFFFF wrap
+        // to negative ones. Other values are decimal with an optional sign, read as short.Parse reads them with
+        // NumberStyles.AllowLeadingSign and the invariant culture, which also ignores trailing null characters. Every
+        // form accepts only ASCII, so any other character fails as it does there.
+        private static bool TryParseInt16Config(ReadOnlySpan<char> value, out short result)
+        {
+            result = 0;
+            if (value.IsEmpty)
+            {
+                return false;
+            }
+
+            if (value[0] == '0')
+            {
+                uint radix = 8;
+                if (value.Length >= 2 && value[1] == 'x')
+                {
+                    radix = 16;
+                    value = value.Slice(2);
+                    if (value.IsEmpty)
+                    {
+                        return false;
+                    }
+                }
+
+                uint number = 0;
+                foreach (char c in value)
+                {
+                    uint digit =
+                        char.IsAsciiDigit(c) ? (uint)(c - '0') :
+                        char.IsAsciiHexDigitLower(c) ? (uint)(c - 'a' + 10) :
+                        char.IsAsciiHexDigitUpper(c) ? (uint)(c - 'A' + 10) :
+                        uint.MaxValue;
+                    if (digit >= radix)
+                    {
+                        return false;
+                    }
+
+                    number = number * radix + digit;
+                    if (number > ushort.MaxValue)
+                    {
+                        return false;
+                    }
+                }
+
+                result = (short)number;
+                return true;
+            }
+
+            int index = 0;
+            bool negative = false;
+            if (value[0] is '+' or '-')
+            {
+                negative = value[0] == '-';
+                index = 1;
+            }
+
+            int end = value.Length;
+            while (end > index && value[end - 1] == '\0')
+            {
+                end--;
+            }
+
+            if (index == end)
+            {
+                return false;
+            }
+
+            int magnitude = 0;
+            int limit = negative ? -short.MinValue : short.MaxValue;
+            for (; index < end; index++)
+            {
+                char c = value[index];
+                if (!char.IsAsciiDigit(c))
+                {
+                    return false;
+                }
+
+                magnitude = magnitude * 10 + (c - '0');
+                if (magnitude > limit)
+                {
+                    return false;
+                }
+            }
+
+            result = (short)(negative ? -magnitude : magnitude);
+            return true;
+        }
+#else
+        private static short GetInt16Config(string configName, string envVariable, short defaultValue, bool allowNegative) =>
+            AppContextConfigHelper.GetInt16Config(configName, envVariable, defaultValue, allowNegative);
+#endif
 
         private struct State : IEquatable<State>
         {

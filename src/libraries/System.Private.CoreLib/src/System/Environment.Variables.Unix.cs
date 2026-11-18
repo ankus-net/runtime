@@ -31,6 +31,47 @@ namespace System
             }
         }
 
+        /// <summary>
+        /// GetEnvironmentVariableCore that avoids Encoding.UTF8, whose class constructor can be running earlier on this
+        /// thread when a lock is first contended. The name must be ASCII. Each byte of the value outside ASCII becomes
+        /// U+FFFD, so callers can only parse ASCII values with it.
+        /// </summary>
+        internal static unsafe string? GetEnvironmentVariableCore_NoEncoding(string variable)
+        {
+            Debug.Assert(variable != null);
+
+            if (s_environment != null)
+            {
+                return GetEnvironmentVariableCore(variable);
+            }
+
+            byte* name = stackalloc byte[variable.Length + 1];
+            for (int i = 0; i < variable.Length; i++)
+            {
+                Debug.Assert(char.IsAscii(variable[i]) && variable[i] != '\0');
+                name[i] = (byte)variable[i];
+            }
+
+            name[variable.Length] = 0;
+            byte* value = Interop.Sys.GetEnv(name);
+            if (value == null)
+            {
+                return null;
+            }
+
+            ReadOnlySpan<byte> bytes = MemoryMarshal.CreateReadOnlySpanFromNullTerminated(value);
+            string result = string.FastAllocateString(bytes.Length);
+            fixed (char* chars = result)
+            {
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    chars[i] = bytes[i] <= 0x7F ? (char)bytes[i] : '�';
+                }
+            }
+
+            return result;
+        }
+
         /// <summary>GetEnvironmentVariableCore that avoids using the ArrayPool.</summary>
         internal static string? GetEnvironmentVariableCore_NoArrayPool(string variable) =>
             // This implementation of GetEnvironmentVariableCore doesn't use the pool, so this just delegates to it.
